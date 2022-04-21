@@ -6,7 +6,7 @@ import torch.nn as nn
 from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_, DropPath
-from .transformer_block import Block, Mlp, get_sinusoid_encoding
+from .TransformerBlock import Block, Mlp, get_sinusoid_encoding
 from collections import OrderedDict
 
 
@@ -300,35 +300,7 @@ def t2t_vit_14_t(pretrained=False, **kwargs):  # adopt transformers for tokens t
     return model
 
 
-@register_model
-def t2t_vit_14_p_custom_depth(pretrained=False, **kwargs):  # adopt performer for tokens to token
-    if pretrained:
-        kwargs.setdefault('qk_scale', 384 ** -0.5)
-    model_kwargs = dict(embed_dim=384, depth=14, num_heads=6, mlp_ratio=3.)
-    model_kwargs = safe_merge_dicts(kwargs, model_kwargs)
-    model = T2T_ViT(**model_kwargs)
-    model.default_cfg = default_cfgs['T2t_vit_14_p']
-    if pretrained:
-        load_pretrained(
-            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
-    return model
-
-
-@register_model
-def t2t_vit_14_t_custom_depth(pretrained=False, **kwargs):  # adopt transformers for tokens to token
-    if pretrained:
-        kwargs.setdefault('qk_scale', 384 ** -0.5)
-    model_kwargs = dict(embed_dim=384, depth=14, num_heads=6, mlp_ratio=3., tokens_type='transformer')
-    model_kwargs = safe_merge_dicts(kwargs, model_kwargs)
-    model = T2T_ViT(**model_kwargs)
-    model.default_cfg = default_cfgs['T2t_vit_14_t']
-    if pretrained:
-        load_pretrained(
-            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
-    return model
-
-
-def load_t2t_vit(model_name, checkpoint_path, depth=None):
+def load_t2t_vit(model_name, checkpoint_path):
     assert os.path.isfile(checkpoint_path)
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     state_dict = OrderedDict()
@@ -336,15 +308,10 @@ def load_t2t_vit(model_name, checkpoint_path, depth=None):
         name = k[7:] if k.startswith('module') else k
         state_dict[name] = v
 
-    if depth is None:
-        if model_name == "t2t_vit_14_p":
-            model = t2t_vit_14_p()
-        elif model_name == "t2t_vit_14_t":
-            model = t2t_vit_14_t()
-    else:
-        if model_name == "t2t_vit_14_p":
-            model = t2t_vit_14_p_custom_depth()
-        elif model_name == "t2t_vit_14_t":
-            model = t2t_vit_14_t_custom_depth()
+    if model_name == "t2t_vit_14_p":
+        model = t2t_vit_14_p()
+    elif model_name == "t2t_vit_14_t":
+        model = t2t_vit_14_t()
+
     model.load_state_dict(state_dict, strict=False)
     return model
