@@ -42,7 +42,6 @@ class Attention(nn.Module):
 
     def forward(self, x):
         B, N, C = x.shape
-
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.in_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
@@ -56,7 +55,6 @@ class Attention(nn.Module):
 
         # skip connection
         x = v.squeeze(1) + x   # because the original x has different size with current x, use v to do skip connection
-
         return x
 
 
@@ -115,7 +113,6 @@ class Token_performer(nn.Module):
 
 
 class Token_transformer(nn.Module):
-
     def __init__(self, dim, in_dim, num_heads, mlp_ratio=1., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()

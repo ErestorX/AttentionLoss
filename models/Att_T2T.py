@@ -39,44 +39,43 @@ class Attention(nn.Module):
         self.proj = nn.Linear(in_dim, in_dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x):
-        B, N, C = x.shape
-        # tmp = x.clone().detach()
-        # tmp = self.qkv(tmp).reshape(B, N, 3, self.num_heads, self.in_dim).permute(2, 0, 3, 1, 4)
-        # q_tmp, k_tmp, v_tmp = tmp[0], tmp[1], tmp[2]
-        # tmp = (q_tmp * self.scale) @ k_tmp.transpose(-2, -1)
-        # tmp = tmp.softmax(dim=-1)
-        # B, H, N, _ = tmp.shape
-        # tmp = tmp.permute(1, 0, 2, 3)
+    def make_headDist(self, input, copy=False):
+        if copy:
+            B, N, C = input.shape
+            x = input.clone().detach()
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.in_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv[0], qkv[1], qkv[2]
+            attn = (q * self.scale) @ k.transpose(-2, -1)
+            attn = attn.softmax(dim=-1)
+        else:
+            attn = input
+        B, H, N, _ = attn.shape
+        return torch.from_numpy(np.ones(H)).float().cuda()
+        # tmp = attn.permute(1, 0, 2, 3)
         # N = N - 1
         # tmp = tmp[:, :, 1:, 1:]
         # id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
         # dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
         # head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(tmp, (1, 2, 3))
-        # head_dist = head_dist / N ** .5
-        # N = N + 1
+        # return head_dist / (np.sqrt(2) * N ** .5)
 
+    def forward(self, x):
+        B, N, C = x.shape
+        # head_dist = self.make_headDist(x, copy=True)
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.in_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
+
         attn = (q * self.scale) @ k.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
-        B, H, N, _ = attn.shape
-        tmp = attn.permute(1, 0, 2, 3)
-        N = N - 1
-        tmp = tmp[:, :, 1:, 1:]
-        id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
-        dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
-        head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(tmp, (1, 2, 3))
-        head_dist = head_dist / (np.sqrt(2) * N ** .5)
-        N = N + 1
+        head_dist = self.make_headDist(attn)
         attn = self.attn_drop(attn)
+
         x = (attn @ v).transpose(1, 2).reshape(B, N, self.in_dim)
         x = self.proj(x)
         x = self.proj_drop(x)
 
         # skip connection
         x = v.squeeze(1) + x   # because the original x has different size with current x, use v to do skip connection
-
         return x, head_dist
 
 
@@ -92,37 +91,35 @@ class AttentionBlock(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x):
-        B, N, C = x.shape
-        # tmp = x.clone().detach()
-        # tmp = self.qkv(tmp).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        # q_tmp, k_tmp, v_tmp = tmp[0], tmp[1], tmp[2]
-        # tmp = (q_tmp @ k_tmp.transpose(-2, -1)) * self.scale
-        # tmp = tmp.softmax(dim=-1)
-        # B, H, N, _ = tmp.shape
-        # tmp = tmp.permute(1, 0, 2, 3)
+    def make_headDist(self, input, copy=False):
+        if copy:
+            B, N, C = input.shape
+            x = input.clone().detach()
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.in_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv[0], qkv[1], qkv[2]
+            attn = (q * self.scale) @ k.transpose(-2, -1)
+            attn = attn.softmax(dim=-1)
+        else:
+            attn = input
+        B, H, N, _ = attn.shape
+        return torch.from_numpy(np.ones(H)).float().cuda()
+        # tmp = attn.permute(1, 0, 2, 3)
         # N = N - 1
         # tmp = tmp[:, :, 1:, 1:]
         # id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
         # dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
         # head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(tmp, (1, 2, 3))
-        # head_dist = head_dist / N ** .5
-        # N = N + 1
+        # return head_dist / (np.sqrt(2) * N ** .5)
 
-
+    def forward(self, x):
+        B, N, C = x.shape
+        # head_dist = self.make_headDist(x, copy=True)
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
+
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
-        B, H, N, _ = attn.shape
-        tmp = attn.permute(1, 0, 2, 3)
-        N = N - 1
-        tmp = tmp[:, :, 1:, 1:]
-        id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
-        dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
-        head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(tmp, (1, 2, 3))
-        head_dist = head_dist / (np.sqrt(2) * N ** .5)
-        N = N + 1
+        head_dist = self.make_headDist(attn)
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
@@ -193,17 +190,22 @@ class Token_performer(nn.Module):
 
         return torch.exp(wtx - xd) / math.sqrt(self.m)
 
-    def single_attn(self, x):
-        k, q, v = torch.split(self.kqv(x), self.emb, dim=-1)
+    def make_headDist(self, q, k):
         attn = (q * self.scale) @ k.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
         B, H, N, _ = attn.shape
-        tmp = attn.permute(1, 0, 2, 3)
-        N = N - 1
-        tmp = tmp[:, :, 1:, 1:]
-        id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
-        dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
-        head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(attn, (1, 2, 3))
+        return torch.from_numpy(np.ones(H)).float().cuda()
+        # tmp = attn.permute(1, 0, 2, 3)
+        # N = N - 1
+        # tmp = tmp[:, :, 1:, 1:]
+        # id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
+        # dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
+        # head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(attn, (1, 2, 3))
+        # return head_dist / (np.sqrt(2) * N ** .5)
+
+    def single_attn(self, x):
+        k, q, v = torch.split(self.kqv(x), self.emb, dim=-1)
+        head_dist = self.make_headDist(q, k)
         kp, qp = self.prm_exp(k), self.prm_exp(q)  # (B, T, m), (B, T, m)
         D = torch.einsum('bti,bi->bt', qp, kp.sum(dim=1)).unsqueeze(dim=2)  # (B, T, m) * (B, m) -> (B, T, 1)
         kptv = torch.einsum('bin,bim->bnm', v.float(), kp)  # (B, emb, m)

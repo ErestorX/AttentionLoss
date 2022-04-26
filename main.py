@@ -290,17 +290,9 @@ parser.add_argument('--log-wandb', action='store_true', default=False,
                     help='log training and validation metrics to wandb')
 
 # custom args
-parser.add_argument('--custom', action='store_true', default=False,
-                    help='switch from using custom model to original timm model')
-parser.add_argument('--custom_do', default='exp', type=str,
-                    help='change the mode of the variable dropout')
-parser.add_argument('--custom_do_param', default=0.5, type=float,
-                    help='set the dropout parameter')
-parser.add_argument('--depth', default=None, type=int,
-                    help='set the depth of the model')
 parser.add_argument('--attention_loss', action='store_true', default=False,
                     help='use auxiliary attention loss')
-parser.add_argument('--attention_loss_weight', default=0.3, type=float,
+parser.add_argument('--attention_loss_weight', default=0.1, type=float,
                     help='set the weight of the auxiliary attention loss')
 
 
@@ -315,10 +307,6 @@ def _parse_args():
     # The main arg parser parses the rest of the args, the usual
     # defaults will have been overridden if config file specified.
     args = parser.parse_args(remaining)
-    if args.custom:
-        args.model = 'custom_' + args.model
-    if args.depth is not None:
-        args.model = args.model + '_custom_depth'
     if args.attention_loss:
         args.model = 'att_' + args.model
     else:
