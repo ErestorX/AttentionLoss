@@ -309,6 +309,5 @@ def load_t2t_vit(model_name, checkpoint_path):
         model = t2t_vit_14_p()
     elif model_name == "t2t_vit_14_t":
         model = t2t_vit_14_t()
-
     model.load_state_dict(state_dict, strict=False)
     return model

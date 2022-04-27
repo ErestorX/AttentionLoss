@@ -20,6 +20,7 @@ import logging
 from functools import partial
 from collections import OrderedDict
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -75,29 +76,36 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(attn_drop)
 
+    def make_headDist(self, input, copy=False):
+        if copy:
+            B, N, C = input.shape
+            x = input.clone().detach()
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.in_dim).permute(2, 0, 3, 1, 4)
+            q, k, v = qkv[0], qkv[1], qkv[2]
+            attn = (q * self.scale) @ k.transpose(-2, -1)
+            attn = attn.softmax(dim=-1)
+        else:
+            attn = input
+        B, H, N, _ = attn.shape
+        return torch.from_numpy(np.ones(H)).float().cuda()
+        # tmp = attn.permute(1, 0, 2, 3)
+        # N = N - 1
+        # tmp = tmp[:, :, 1:, 1:]
+        # id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
+        # dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
+        # head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(tmp, (1, 2, 3))
+        # return head_dist / (np.sqrt(2) * N ** .5)
+
     def forward(self, x):
         B, N, C = x.shape
-        tmp = x.clone().detach()
+        # head_dist = self.make_headDist(x, copy=True)
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        tmp = self.qkv(tmp).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
-        q_tmp, k_tmp, v_tmp = tmp[0], tmp[1], tmp[2]
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        tmp = (q_tmp @ k_tmp.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
-        tmp = tmp.softmax(dim=-1)
-        B, H, N, _ = attn.shape
-        tmp = tmp.permute(1, 0, 2, 3)
-        N = N - 1
-        tmp = tmp[:, :, 1:, 1:]
-        id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
-        dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
-        head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(tmp, (1, 2, 3))
-        head_dist = head_dist / N ** 0.5
-        N = N + 1
+        head_dist = self.make_headDist(attn)
         attn = self.attn_drop(attn)
-
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)

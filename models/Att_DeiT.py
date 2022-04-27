@@ -9,7 +9,8 @@ import torch
 from torch import nn as nn
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from timm.models.vision_transformer import VisionTransformer, trunc_normal_, checkpoint_filter_fn
+from timm.models.vision_transformer import trunc_normal_, checkpoint_filter_fn
+from .Att_ViT import VisionTransformer
 
 from timm.models.helpers import build_model_with_cfg
 from .helpers import checkpoint_seq
@@ -100,18 +101,15 @@ class VisionTransformerDistilled(VisionTransformer):
     def set_distilled_training(self, enable=True):
         self.distilled_training = enable
 
-    def forward_features(self, x) -> torch.Tensor:
+    def forward_features(self, x) -> (torch.Tensor, torch.Tensor):
         x = self.patch_embed(x)
         x = torch.cat((
             self.cls_token.expand(x.shape[0], -1, -1),
             self.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
         x = self.pos_drop(x + self.pos_embed)
-        if self.grad_checkpointing and not torch.jit.is_scripting():
-            x = checkpoint_seq(self.blocks, x)
-        else:
-            x = self.blocks(x)
+        x, attention_profile = self.blocks(x)
         x = self.norm(x)
-        return x
+        return x, attention_profile
 
     def forward_head(self, x, pre_logits: bool = False) -> torch.Tensor:
         if pre_logits:
