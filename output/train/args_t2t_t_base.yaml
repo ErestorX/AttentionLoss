@@ -1,6 +1,8 @@
 aa: rand-m9-mstd0.5-inc1
 amp: true
 apex_amp: true
+attention_loss: false
+attention_loss_weight: 0.0
 aug_repeats: 0
 aug_splits: 0
 batch_size: 256
@@ -17,7 +19,7 @@ cooldown_epochs: 10
 crop_pct: null
 cutmix: 1.0
 cutmix_minmax: null
-data_dir: /data/hugo/ImageNet
+data_dir: /data/hugo/ImageNet/
 dataset: ''
 decay_epochs: 30
 decay_rate: 0.1
