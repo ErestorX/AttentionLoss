@@ -1,4 +1,6 @@
 from collections import OrderedDict
+import torch.nn.functional as F
+import torch.nn as nn
 from timm.utils import *
 import numpy as np
 import torch
@@ -7,6 +9,21 @@ import time
 
 def torch_weighted_mean(tensor, weights):
     return (tensor * weights).sum((1, 2, 3)) / weights.sum((1, 2, 3))
+
+
+def clamp(X, lower_limit, upper_limit):
+    return torch.max(torch.min(X, upper_limit), lower_limit)
+
+
+def PCGrad(atten_grad, ce_grad, sim, shape):
+    pcgrad = atten_grad[sim < 0]
+    temp_ce_grad = ce_grad[sim < 0]
+    dot_prod = torch.mul(pcgrad, temp_ce_grad).sum(dim=-1)
+    dot_prod = dot_prod / torch.norm(temp_ce_grad, dim=-1)
+    pcgrad = pcgrad - dot_prod.view(-1, 1) * temp_ce_grad
+    atten_grad[sim < 0] = pcgrad
+    atten_grad = atten_grad.view(shape)
+    return atten_grad
 
 
 def update_attention_stat(model, qkvs, statistics, batch_idx, patch_size, t2t, performer):
@@ -184,6 +201,83 @@ def get_attack_accuracy_and_attention(model, name_model, loader, loss_fn, summar
                 input = input + step_size * grad.sign()
                 input = input_orig + torch.clamp(input - input_orig, -epsilonMax, epsilonMax)
                 input = torch.clamp(input, -1, 1).detach()
+
+            if pgd_steps == 250:
+                mu = torch.tensor(args.mu).view(3, 1, 1).cuda()
+                std = torch.tensor(args.std).view(3, 1, 1).cuda()
+                criterion = nn.CrossEntropyLoss().cuda()
+
+                patch_num_per_line = int(input.size(-1) / patch_size)
+                delta = torch.zeros_like(input).cuda()
+                delta.requires_grad = True
+                out, atten = model(input + delta)
+                atten_layer = atten[4].mean(dim=1)
+                if 'DeiT' in args.network:
+                    atten_layer = atten_layer.mean(dim=-2)[:, 1:]
+                else:
+                    atten_layer = atten_layer.mean(dim=-2)
+                max_patch_index = atten_layer.argsort(descending=True)[:, :args.num_patch]
+                mask = torch.zeros([input.size(0), 1, input.size(2), input.size(3)]).cuda()
+                for j in range(input.size(0)):
+                    index_list = max_patch_index[j]
+                    for index in index_list:
+                        row = (index // patch_num_per_line) * patch_size
+                        column = (index % patch_num_per_line) * patch_size
+                        mask[j, :, row:row + patch_size, column:column + patch_size] = 1
+                max_patch_index_matrix = max_patch_index[:, 0]
+                max_patch_index_matrix = max_patch_index_matrix.repeat(197, 1)
+                max_patch_index_matrix = max_patch_index_matrix.permute(1, 0)
+                max_patch_index_matrix = max_patch_index_matrix.flatten().long()
+                delta = (torch.rand_like(input) - mu) / std
+                delta.data = clamp(delta, (0 - mu) / std, (1 - mu) / std)
+                original_img = input.clone()
+                input = torch.mul(input, 1 - mask)
+                input = torch.mul(input, 1 - mask)
+                delta = delta.cuda()
+                delta.requires_grad = True
+
+                opt = torch.optim.Adam([delta], lr=args.attack_learning_rate)
+                scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=10, gamma=0.95)
+
+                for _ in range(pgd_steps):
+                    model.zero_grad()
+                    opt.zero_grad()
+                    output, atten = model(input + torch.mul(delta, mask))
+                    loss = criterion(output, target)
+                    grad = torch.autograd.grad(loss, delta, retain_graph=True)[0]
+                    ce_loss_grad_temp = grad.view(input.size(0), -1).detach().clone()
+
+                    # Attack the first 6 layers' Attn
+                    range_list = range(len(atten) // 2)
+                    for atten_num in range_list:
+                        if atten_num == 0:
+                            continue
+                        atten_map = atten[atten_num]
+                        atten_map = atten_map.mean(dim=1)
+                        atten_map = atten_map.view(-1, atten_map.size(-1))
+                        atten_map = -torch.log(atten_map)
+                        if 'DeiT' in args.network:
+                            atten_loss = F.nll_loss(atten_map, max_patch_index_matrix + 1)
+                        else:
+                            atten_loss = F.nll_loss(atten_map, max_patch_index_matrix)
+
+                        atten_grad = torch.autograd.grad(atten_loss, delta, retain_graph=True)[0]
+
+                        atten_grad_temp = atten_grad.view(input.size(0), -1)
+                        cos_sim = F.cosine_similarity(atten_grad_temp, ce_loss_grad_temp, dim=1)
+
+                        '''PCGrad'''
+                        atten_grad = PCGrad(atten_grad_temp, ce_loss_grad_temp, cos_sim, grad.shape)
+                        grad += atten_grad * args.atten_loss_weight
+                        opt.zero_grad()
+                        delta.grad = -grad
+                        opt.step()
+                        scheduler.step()
+                        delta.data = clamp(delta, (0 - mu) / std, (1 - mu) / std)
+
+                input = original_img + torch.mul(delta, mask)
+
+
             output = model(input)
             statistics = update_attention_stat(model, qkvs, statistics, batch_idx, patch_size, t2t, performer)
             if isinstance(output, (tuple, list)):

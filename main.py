@@ -580,7 +580,7 @@ def main():
             train_loss_fn = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
     else:
         train_loss_fn = nn.CrossEntropyLoss()
-    aux_loss_fn = AttentionProfileLoss(policy='max', operation='mean') if args.attention_loss else None
+    aux_loss_fn = AttentionProfileLoss() if args.attention_loss else None
     train_loss_fn = train_loss_fn.cuda()
     validate_loss_fn = nn.CrossEntropyLoss().cuda()
 
@@ -685,9 +685,10 @@ def train_one_epoch(
         with amp_autocast():
             output = model(input)
             if aux_loss_fn is not None:
-                aux_loss = 0.0
                 output, attention = output
-                # aux_loss = aux_loss_fn(attention) * aux_loss_weight
+                aux_loss = aux_loss_fn(attention) * aux_loss_weight
+                if args.local_rank == 0:
+                    print('aux_loss', aux_loss.item())
                 # if epoch >= args.warmup_epochs:
                 #     output, attention = output
                 #     aux_loss = aux_loss_fn(attention) * aux_loss_weight
@@ -697,6 +698,8 @@ def train_one_epoch(
                 #     aux_loss_weight = 0.0
             else:
                 aux_loss = 0.0
+            if args.local_rank == 0:
+                print('main loss:', loss_fn(output, target).item())
             loss = (1.0 - aux_loss_weight) * loss_fn(output, target) + aux_loss
 
         if args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None:
