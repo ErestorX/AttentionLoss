@@ -1,0 +1,6 @@
+torch~=1.9.1
+numpy~=1.21.2
+timm~=0.4.12
+PyYAML~=5.4.1
+torchvision~=0.10.1
+apex~=0.1
