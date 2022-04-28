@@ -2,11 +2,8 @@ import torch
 
 
 class AttentionProfileLoss(torch.nn.Module):
-    def __init__(self, is_t2t=False):
+    def __init__(self):
         super(AttentionProfileLoss, self).__init__()
-        self.is_t2t = is_t2t
 
     def forward(self, x):
-        # x = [batch_size, nb_blocks, nb_heads]
-        x = torch.mean(x, dim=1)
-        return torch.mean(1.0 - x, dtype=torch.float32)
+        return torch.mean(1.0 - torch.mean(x, dim=-1), dtype=torch.float32)

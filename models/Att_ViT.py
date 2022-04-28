@@ -127,12 +127,12 @@ class Block(nn.Module):
     def forward(self, x):
         if isinstance(x, tuple):
             x, blocks_attn = x
-            x, block_attn = self.attn(self.norm1(x))
+            tmp, block_attn = self.attn(self.norm1(x))
             blocks_attn = torch.cat((blocks_attn, block_attn.unsqueeze(0)))
         else:
-            x, blocks_attn = self.attn(self.norm1(x))
+            tmp, blocks_attn = self.attn(self.norm1(x))
             blocks_attn = blocks_attn.unsqueeze(0)
-        x = x + self.drop_path(x)
+        x = x + self.drop_path(tmp)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x, blocks_attn
 

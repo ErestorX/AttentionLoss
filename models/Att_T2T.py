@@ -9,26 +9,11 @@ from timm.models.layers import trunc_normal_, DropPath
 from .TransformerBlock import Mlp, get_sinusoid_encoding
 from collections import OrderedDict
 
-
-def _cfg(url='', **kwargs):
-    return {
-        'url': url,
-        'num_classes': 1000, 'input_size': (3, 224, 224), 'pool_size': None,
-        'crop_pct': .9, 'interpolation': 'bicubic',
-        'mean': (0.485, 0.456, 0.406), 'std': (0.229, 0.224, 0.225),
-        'classifier': 'head',
-        **kwargs
-    }
-
-
-default_cfgs = {
-    'T2t_vit_14_p': _cfg("https://github.com/yitu-opensource/T2T-ViT/releases/download/main/81.5_T2T_ViT_14.pth.tar"),
-    'T2t_vit_14_t': _cfg("https://github.com/yitu-opensource/T2T-ViT/releases/download/main/81.7_T2T_ViTt_14.pth.tar"),
-}
+from .T2T import _cfg, default_cfgs, safe_merge_dicts
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, in_dim=None, qkv_bias=None, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, num_heads=8, in_dim=None, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.num_heads = num_heads
         self.in_dim = in_dim
@@ -50,7 +35,6 @@ class Attention(nn.Module):
         else:
             attn = input
         B, H, N, _ = attn.shape
-        # return torch.from_numpy(np.ones(H)).float().cuda()
         tmp = attn.permute(1, 0, 2, 3)
         N = N - 1
         tmp = tmp[:, :, 1:, 1:]
@@ -61,13 +45,13 @@ class Attention(nn.Module):
 
     def forward(self, x):
         B, N, C = x.shape
-        head_dist = self.make_headDist(x, copy=True)
+        # head_dist = self.make_headDist(x, copy=True)
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.in_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
-        # head_dist = self.make_headDist(attn)
+        head_dist = self.make_headDist(attn)
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, self.in_dim)
@@ -102,7 +86,6 @@ class AttentionBlock(nn.Module):
         else:
             attn = input
         B, H, N, _ = attn.shape
-        # return torch.from_numpy(np.ones(H)).float().cuda()
         tmp = attn.permute(1, 0, 2, 3)
         N = N - 1
         tmp = tmp[:, :, 1:, 1:]
@@ -113,13 +96,13 @@ class AttentionBlock(nn.Module):
 
     def forward(self, x):
         B, N, C = x.shape
-        head_dist = self.make_headDist(x, copy=True)
+        # head_dist = self.make_headDist(x, copy=True)
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
-        # head_dist = self.make_headDist(attn)
+        head_dist = self.make_headDist(attn)
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
@@ -143,12 +126,12 @@ class Block(nn.Module):
     def forward(self, x):
         if isinstance(x, tuple):
             x, blocks_attn = x
-            x, block_attn = self.attn(self.norm1(x))
+            tmp, block_attn = self.attn(self.norm1(x))
             blocks_attn = torch.cat((blocks_attn, block_attn.unsqueeze(0)))
         else:
-            x, blocks_attn = self.attn(self.norm1(x))
+            tmp, blocks_attn = self.attn(self.norm1(x))
             blocks_attn = blocks_attn.unsqueeze(0)
-        x = x + self.drop_path(x)
+        x = x + self.drop_path(tmp)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x, blocks_attn
 
@@ -194,14 +177,13 @@ class Token_performer(nn.Module):
         attn = (q * self.scale) @ k.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
         B, H, N, _ = attn.shape
-        return torch.from_numpy(np.ones(H)).float().cuda()
-        # tmp = attn.permute(1, 0, 2, 3)
-        # N = N - 1
-        # tmp = tmp[:, :, 1:, 1:]
-        # id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
-        # dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
-        # head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(attn, (1, 2, 3))
-        # return head_dist / (np.sqrt(2) * N ** .5)
+        tmp = attn.permute(1, 0, 2, 3)
+        N = N - 1
+        tmp = tmp[:, :, 1:, 1:]
+        id_dist = torch.arange(N).reshape((1, N)) - torch.arange(N).reshape((N, 1))
+        dist_map = torch.sqrt((torch.abs(id_dist) % N ** 0.5) ** 2 + (id_dist // N ** 0.5) ** 2)
+        head_dist = torch.sum(tmp * dist_map.to(device='cuda'), (1, 2, 3)) / torch.sum(attn, (1, 2, 3))
+        return head_dist / (np.sqrt(2) * N ** .5)
 
     def single_attn(self, x):
         k, q, v = torch.split(self.kqv(x), self.emb, dim=-1)
@@ -277,16 +259,14 @@ class T2T_module(nn.Module):
         x = self.soft_split0(x).transpose(1, 2)
 
         # iteration1: re-structurization/reconstruction
-        x, block_attn = self.attention1(x)
-        blocks_attn = block_attn.unsqueeze(0)
+        x, block_attn1 = self.attention1(x)
         B, new_HW, C = x.shape
         x = x.transpose(1,2).reshape(B, C, int(np.sqrt(new_HW)), int(np.sqrt(new_HW)))
         # iteration1: soft split
         x = self.soft_split1(x).transpose(1, 2)
 
         # iteration2: re-structurization/reconstruction
-        x, block_attn = self.attention2(x)
-        blocks_attn = torch.cat((blocks_attn, block_attn.unsqueeze(0)), 0)
+        x, block_attn2 = self.attention2(x)
         B, new_HW, C = x.shape
         x = x.transpose(1, 2).reshape(B, C, int(np.sqrt(new_HW)), int(np.sqrt(new_HW)))
         # iteration2: soft split
@@ -295,7 +275,7 @@ class T2T_module(nn.Module):
         # final tokens
         x = self.project(x)
 
-        return x, blocks_attn
+        return x, torch.cat((block_attn1.unsqueeze(0), block_attn2.unsqueeze(0)), 0)
 
 
 class T2T_ViT(nn.Module):
@@ -370,17 +350,6 @@ class T2T_ViT(nn.Module):
         x, blocks_attn = self.forward_features(x)
         x = self.head(x)
         return x, blocks_attn
-
-
-def safe_merge_dicts(d1, d2):
-    """
-    Merge two dicts, but don't overwrite keys in d1.
-    """
-    d = d1.copy()
-    for k, v in d2.items():
-        if k not in d:
-            d[k] = v
-    return d
 
 
 @register_model
