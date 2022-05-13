@@ -1,3 +1,4 @@
+from torch.nn.parallel import DistributedDataParallel as NativeDDP
 from torch.nn import CrossEntropyLoss
 from utils_eval import *
 from utils import *
@@ -30,7 +31,7 @@ def main(args):
     model, experiment_name = load_model_and_make_name(args)
     model = model.eval().cuda()
     if args.distributed:
-        model = torch.nn.parallel.NativeDDP(model, device_ids=[args.local_rank])
+        model = NativeDDP(model, device_ids=[args.local_rank])
     if experiment_name not in all_summaries.keys():
         all_summaries[experiment_name] = {}
 
@@ -40,7 +41,8 @@ def main(args):
     get_accuracy_and_attention(model, experiment_name, loader, loss_fn, all_summaries[experiment_name], args)
     save_experiment_results(json_file, all_summaries, args.local_rank)
 
-    attacks = [[1, 0.031], [1, 0.062], [40, 0.001], [40, 0.003], [40, 0.005], [40, 0.01]]
+    # attacks = [[1, 0.031], [1, 0.062], [40, 0.001], [40, 0.003], [40, 0.005], [40, 0.01]]
+    attacks = [[1, 0.031], [40, 0.003], [40, 0.01]]
     for steps, epsilon in attacks:
         step_size = 0.025 if steps != 1 else 1
         get_attack_accuracy_and_attention(model, experiment_name, loader, loss_fn, all_summaries[experiment_name], args, epsilonMax=epsilon, pgd_steps=steps, step_size=step_size)
@@ -66,20 +68,16 @@ if __name__ == '__main__':
     else:
         torch.cuda.set_device(0)
     assert args.rank >= 0
-    model_ckpt_args_triplets = [('vit_tiny_patch16_224', None, 'pretrained'),
+    model_ckpt_args_triplets = [
+                        ('vit_tiny_patch16_224', None, 'pretrained'),
                         ('vit_small_patch16_224', None, 'pretrained'),
-                        ('vit_small_patch16_224_custom_depth', 'vit_small_patch16_224_depth14_t2tParams', 'depth=14'),
                         ('vit_small_patch32_224', None, 'pretrained'),
-                        ('vit_large_patch16_224', None, 'pretrained'),
-                        ('vit_large_patch32_224', None, 'pretrained'),
-                        ('t2t_vit_14_t', 't2t_vit_14_t', None),
-                        ('t2t_vit_14_p', 't2t_vit_14_p', None),
-                        ('custom_t2t_vit_14_t', 't2t_vit_14_t_doexp05l', None),
-                        ('custom_t2t_vit_14_t', 't2t_vit_14_t_donegexp025l', None),
-                        ('custom_t2t_vit_14_t', 't2t_vit_14_t_donegexp05l', None),
-                        ('custom_t2t_vit_14_t', 't2t_vit_14_t_donegexp075l', None),
-                        ('t2t_vit_14_t_custom_depth', 't2t_vit_14_t_depth12', 'depth=12'),
-                        ('t2t_vit_14_t_custom_depth', 't2t_vit_14_t_depth12_vitParams', 'depth=12')]
+                        # ('vit_large_patch16_224', None, 'pretrained'),
+                        # ('vit_large_patch32_224', None, 'pretrained'),
+                        # ('t2t_vit_14_t', 't2t_vit_14_t', None),
+                        # ('t2t_vit_14_p', 't2t_vit_14_p', None),
+                        # ('att_t2t_vit_14_t', 'att0.1_t2t_vit_14_t', None),
+                        ]
     for (model, ckpt, params) in model_ckpt_args_triplets:
         args.model = model
         args.ckpt_file = ckpt

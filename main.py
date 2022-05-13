@@ -294,6 +294,8 @@ parser.add_argument('--attention_loss', action='store_true', default=False,
                     help='use auxiliary attention loss')
 parser.add_argument('--attention_loss_weight', default=0.1, type=float,
                     help='set the weight of the auxiliary attention loss')
+parser.add_argument('--attention_loss_policy', default='max', type=str,
+                    help='set the policy of the auxiliary attention loss')
 
 
 def _parse_args():
@@ -580,7 +582,7 @@ def main():
             train_loss_fn = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
     else:
         train_loss_fn = nn.CrossEntropyLoss()
-    aux_loss_fn = AttentionProfileLoss() if args.attention_loss else None
+    aux_loss_fn = AttentionProfileLoss(policy=args.attention_loss_policy) if args.attention_loss else None
     train_loss_fn = train_loss_fn.cuda()
     validate_loss_fn = nn.CrossEntropyLoss().cuda()
 
@@ -686,9 +688,6 @@ def train_one_epoch(
             output = model(input)
             if aux_loss_fn is not None:
                 output, attention = output
-                # if args.local_rank == 0:
-                #     print('attention:', torch.mean(attention, dim=-1))
-                #     print('aux loss:', aux_loss_fn(attention).item())
                 aux_loss = aux_loss_fn(attention) * aux_loss_weight
                 # if epoch >= args.warmup_epochs:
                 #     output, attention = output
@@ -699,9 +698,6 @@ def train_one_epoch(
                 #     aux_loss_weight = 0.0
             else:
                 aux_loss = 0.0
-            # if args.local_rank == 0:
-            #     print('output:', torch.mean(output.permute(1, 0), dim=-1))
-            #     print('main loss:', loss_fn(output, target).item())
             loss = (1.0 - aux_loss_weight) * loss_fn(output, target) + aux_loss
 
         if args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None:

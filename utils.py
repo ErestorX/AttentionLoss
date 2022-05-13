@@ -51,22 +51,13 @@ def beautiful_model_name(model_name):
             final_tokens.append(' Pretrained')
         elif token == 'scratch':
             final_tokens.append(' INet training')
-        elif token == 'doexp05l':
-            final_tokens.append(' - dropout: 0.5/exp(0.5*l*d)')
-        elif token == 'donegexp05l':
-            final_tokens.append(' - dropout: 0.5-0.5/exp(0.5*l*d)')
-        elif token == 'donegexp025l':
-            final_tokens.append(' - dropout: 0.5-0.5/exp(0.25*l*d)')
-        elif token == 'donegexp075l':
-            final_tokens.append(' - dropout: 0.5-0.5/exp(0.75*l*d)')
-        elif token == 'doexp5':
-            final_tokens.append(' - dropout: 0.5/exp(5*d)')
         elif token == 'finetuned':
             final_tokens.append(' for INet fine tuning')
-        elif token == 'custom':
-            pass
         elif token == 'depth':
             final_tokens.append(' 12 ViT blocks' if 't2t' in model_name else ' 14 ViT blocks')
+        elif 'att' in token:
+            attention_loss_value = token[3:]
+            final_tokens.append('Attention Loss ({}) '.format(attention_loss_value))
         else:
             final_tokens.append('-'+token)
     return ''.join(final_tokens)
@@ -130,10 +121,10 @@ def load_model_and_make_name(args):
         experiment_name = beautiful_model_name(args.ckpt_file.replace('-', '_'))
         params_dict['checkpoint_path'] = 'output/train/' + args.ckpt_file + '/model_best.pth.tar'
     if 't2t' in args.model:
-        if 'custom' not in args.model:
-            model = models.T2T.load_t2t_vit(args.model, **params_dict)
+        if 'att' in args.model:
+            model = models.Att_T2T.load_t2t_vit(args.model, **params_dict)
         else:
-            model = models.Custom_T2T.load_custom_t2t_vit(args.model, **params_dict)
+            model = models.T2T.load_t2t_vit(args.model, **params_dict)
     else:
         model = create_model(args.model, **params_dict)
     return model, experiment_name

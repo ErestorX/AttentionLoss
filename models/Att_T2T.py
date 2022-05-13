@@ -116,8 +116,7 @@ class Block(nn.Module):
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = AttentionBlock(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = AttentionBlock(dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -388,9 +387,9 @@ def load_t2t_vit(model_name, checkpoint_path):
         name = k[7:] if k.startswith('module') else k
         state_dict[name] = v
 
-    if model_name == "t2t_vit_14_p":
+    if model_name == "t2t_vit_14_p" or model_name == "att_t2t_vit_14_p":
         model = att_t2t_vit_14_p()
-    elif model_name == "t2t_vit_14_t":
+    elif model_name == "t2t_vit_14_t" or model_name == "att_t2t_vit_14_t":
         model = att_t2t_vit_14_t()
     model.load_state_dict(state_dict, strict=False)
     return model
